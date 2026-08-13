@@ -7,40 +7,31 @@ from datetime import datetime
 import time
 import pytz
 import os
-
- 
-# openai_api_key = os.getenv("OPENAI_API_KEY")
-# 从环境变量获取 Server酱 SendKeys
-server_chan_keys_env = os.getenv("SERVER_CHAN_KEYS")
-if  server_chan_keys_env:
-  #  raise ValueError("环境变量 SERVER_CHAN_KEYS 未设置，请在Github Actions中设置此变量！")
-    server_chan_keys = server_chan_keys_env.split(",")
-
 openai_client = OpenAI(api_key=openai_api_key, base_url="https://api.deepseek.com/v1")
 
-RSS源地址列表
+# RSS源地址列表
 rss_feeds = {
-    "💲 华尔街见闻":{
-        "华尔街见闻":"https://dedicated.wallstreetcn.com/rss.xml",      
+    " 华尔街见闻":{
+        "华尔街见闻":"https://dedicated.wallstreetcn.com/rss.xml",
     },
-    "💻 36氪":{
-        "36氪":"https://36kr.com/feed",   
-        },
-    "🇨🇳 中国经济": {
+    " 36氪":{
+        "36氪":"https://36kr.com/feed",
+    },
+    " 中国经济": {
         "香港經濟日報":"https://www.hket.com/rss/china",
         "东方财富":"http://rss.eastmoney.com/rss_partener.xml",
         "百度股票焦点":"http://news.baidu.com/n?cmd=1&class=stock&tn=rss&sub=0",
         "中新网":"https://www.chinanews.com.cn/rss/finance.xml",
         "国家统计局-最新发布":"https://www.stats.gov.cn/sj/zxfb/rss.xml",
     },
-      "🇺🇸 美国经济": {
+    " 美国经济": {
         "华尔街日报 - 经济":"https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
         "华尔街日报 - 市场":"https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
         "MarketWatch美股": "https://www.marketwatch.com/rss/topstories",
         "ZeroHedge华尔街新闻": "https://feeds.feedburner.com/zerohedge/feed",
         "ETF Trends": "https://www.etftrends.com/feed/",
     },
-    "🌍 世界经济": {
+    " 世界经济": {
         "华尔街日报 - 经济":"https://feeds.content.dowjones.io/public/rss/socialeconomyfeed",
         "BBC全球经济": "http://feeds.bbci.co.uk/news/business/rss.xml",
     },
@@ -53,7 +44,7 @@ def today_date():
 # 爬取网页正文 (用于 AI 分析，但不展示)
 def fetch_article_text(url):
     try:
-        print(f"📰 正在爬取文章内容: {url}")
+        print(f" 正在爬取文章内容: {url}")
         article = Article(url)
         article.download()
         article.parse()
@@ -72,7 +63,6 @@ def fetch_feed_with_headers(url):
     }
     return feedparser.parse(url, request_headers=headers)
 
-
 # 自动重试获取 RSS
 def fetch_feed_with_retry(url, retries=3, delay=5):
     for i in range(retries):
@@ -90,17 +80,15 @@ def fetch_feed_with_retry(url, retries=3, delay=5):
 def fetch_rss_articles(rss_feeds, max_articles=10):
     news_data = {}
     analysis_text = ""  # 用于AI分析的正文内容
-
     for category, sources in rss_feeds.items():
         category_content = ""
         for source, url in sources.items():
-            print(f"📡 正在获取 {source} 的 RSS 源: {url}")
+            print(f" 正在获取 {source} 的 RSS 源: {url}")
             feed = fetch_feed_with_retry(url)
             if not feed:
                 print(f"⚠️ 无法获取 {source} 的 RSS 数据")
                 continue
             print(f"✅ {source} RSS 获取成功，共 {len(feed.entries)} 条新闻")
-
             articles = []  # 每个source都需要重新初始化列表
             for entry in feed.entries[:5]:
                 title = entry.get('title', '无标题')
@@ -108,19 +96,14 @@ def fetch_rss_articles(rss_feeds, max_articles=10):
                 if not link:
                     print(f"⚠️ {source} 的新闻 '{title}' 没有链接，跳过")
                     continue
-
                 # 爬取正文用于分析（不展示）
                 article_text = fetch_article_text(link)
-                analysis_text += f"【{title}】\n{article_text}\n\n"
-
-                print(f"🔹 {source} - {title} 获取成功")
+                analysis_text += f"〖{title}〗\n{article_text}\n\n"
+                print(f" {source} - {title} 获取成功")
                 articles.append(f"- [{title}]({link})")
-
             if articles:
                 category_content += f"### {source}\n" + "\n".join(articles) + "\n\n"
-
         news_data[category] = category_content
-
     return news_data, analysis_text
 
 # AI 生成内容摘要（基于爬取的正文）
@@ -129,14 +112,14 @@ def summarize(text):
         model="deepseek-chat",
         messages=[
             {"role": "system", "content": """
-             你是一名专业的财经新闻分析师，请根据以下新闻内容，按照以下步骤完成任务：
-             1. 提取新闻中涉及的主要行业和主题，找出近1天涨幅最高的3个行业或主题，以及近3天涨幅较高且此前2周表现平淡的3个行业/主题。（如新闻未提供具体涨幅，请结合描述和市场情绪推测热点）
-             2. 针对每个热点，输出：
-                - 催化剂：分析近期上涨的可能原因（政策、数据、事件、情绪等）。
-                - 复盘：梳理过去3个月该行业/主题的核心逻辑、关键动态与阶段性走势。
-                - 展望：判断该热点是短期炒作还是有持续行情潜力。
-             3. 将以上分析整合为一篇1500字以内的财经热点摘要，逻辑清晰、重点突出，适合专业投资者阅读。
-             """},
+            你是一名专业的财经新闻分析师，请根据以下新闻内容，按照以下步骤完成任务：
+            1. 提取新闻中涉及的主要行业和主题，找出近1天涨幅最高的3个行业或主题，以及近3天涨幅较高且此前2周表现平淡的3个行业/主题。（如新闻未提供具体涨幅，请结合描述和市场情绪推测热点）
+            2. 针对每个热点，输出：
+            - 催化剂：分析近期上涨的可能原因（政策、数据、事件、情绪等）。
+            - 复盘：梳理过去3个月该行业/主题的核心逻辑、关键动态与阶段性走势。
+            - 展望：判断该热点是短期炒作还是有持续行情潜力。
+            3. 将以上分析整合为一篇1500字以内的财经热点摘要，逻辑清晰、重点突出，适合专业投资者阅读。
+            """},
             {"role": "user", "content": text}
         ]
     )
@@ -153,21 +136,16 @@ def send_to_wechat(title, content):
         else:
             print(f"❌ 推送失败: {key}, 响应：{response.text}")
 
-
 if __name__ == "__main__":
     today_str = today_date().strftime("%Y-%m-%d")
-
     # 每个网站获取最多 5 篇文章
     articles_data, analysis_text = fetch_rss_articles(rss_feeds, max_articles=5)
-    
     # AI生成摘要
     summary = summarize(analysis_text)
-
     # 生成仅展示标题和链接的最终消息
-    final_summary = f"📅 **{today_str} 财经新闻摘要**\n\n✍️ **今日分析总结：**\n{summary}\n\n---\n\n"
+    final_summary = f"**{today_str} 财经新闻摘要**\n\n✍️ **今日分析总结：**\n{summary}\n\n---\n\n"
     for category, content in articles_data.items():
         if content.strip():
             final_summary += f"## {category}\n{content}\n\n"
-
     # 推送到多个server酱key
-    send_to_wechat(title=f"📌 {today_str} 财经新闻摘要", content=final_summary)
+    send_to_wechat(title=f"{today_str} 财经新闻摘要", content=final_summary)
