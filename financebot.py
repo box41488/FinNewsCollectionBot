@@ -8,7 +8,7 @@ import time
 import pytz
 import os
 
- OpenAI API Key
+ 
 # openai_api_key = os.getenv("OPENAI_API_KEY")
  从环境变量获取 Server酱 SendKeys
 server_chan_keys_env = os.getenv("SERVER_CHAN_KEYS")
