@@ -1,4 +1,4 @@
-# 福生无量天尊
+福生无量天尊
 from openai import OpenAI
 import feedparser
 import requests
@@ -7,15 +7,23 @@ from datetime import datetime
 import time
 import pytz
 import os
+
+# --- Получение API-ключа DeepSeek (нужен только для инициализации клиента, но мы не будем его использовать) ---
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     raise ValueError("OPENAI_API_KEY is not set in environment variables")
-    server_chan_keys_env = os.getenv("SERVER_CHAN_KEYS")
-if not server_chan_keys_env:
-    raise ValueError("环境变量 SERVER_CHAN_KEYS 未设置，请在Github Actions中设置此变量！")
-server_chan_keys = server_chan_keys_env.split(",")
+
+# Инициализация клиента (он не будет вызываться, но нужен для совместимости)
 openai_client = OpenAI(api_key=openai_api_key, base_url="https://api.deepseek.com/v1")
-# RSS源地址列表
+
+# --- Получение ключей Server酱 (если есть) ---
+server_chan_keys_env = os.getenv("SERVER_CHAN_KEYS")
+if server_chan_keys_env:
+    server_chan_keys = server_chan_keys_env.split(",")
+else:
+    server_chan_keys = []   # пустой список, если ключа нет
+
+# --- RSS-источники (можно редактировать) ---
 rss_feeds = {
     " 华尔街见闻":{
         "华尔街见闻":"https://dedicated.wallstreetcn.com/rss.xml",
@@ -43,18 +51,17 @@ rss_feeds = {
     },
 }
 
-# 获取北京时间
+# --- Вспомогательные функции ---
 def today_date():
     return datetime.now(pytz.timezone("Asia/Shanghai")).date()
 
-# 爬取网页正文 (用于 AI 分析，但不展示)
 def fetch_article_text(url):
     try:
         print(f" 正在爬取文章内容: {url}")
         article = Article(url)
         article.download()
         article.parse()
-        text = article.text[:1500]  # 限制长度，防止超出 API 输入限制
+        text = article.text[:1500]
         if not text:
             print(f"⚠️ 文章内容为空: {url}")
         return text
@@ -62,14 +69,12 @@ def fetch_article_text(url):
         print(f"❌ 文章爬取失败: {url}，错误: {e}")
         return "（未能获取文章正文）"
 
-# 添加 User-Agent 头
 def fetch_feed_with_headers(url):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
     return feedparser.parse(url, request_headers=headers)
 
-# 自动重试获取 RSS
 def fetch_feed_with_retry(url, retries=3, delay=5):
     for i in range(retries):
         try:
@@ -82,10 +87,9 @@ def fetch_feed_with_retry(url, retries=3, delay=5):
     print(f"❌ 跳过 {url}, 尝试 {retries} 次后仍失败。")
     return None
 
-# 获取RSS内容（爬取正文但不展示）
 def fetch_rss_articles(rss_feeds, max_articles=10):
     news_data = {}
-    analysis_text = ""  # 用于AI分析的正文内容
+    analysis_text = ""
     for category, sources in rss_feeds.items():
         category_content = ""
         for source, url in sources.items():
@@ -95,14 +99,13 @@ def fetch_rss_articles(rss_feeds, max_articles=10):
                 print(f"⚠️ 无法获取 {source} 的 RSS 数据")
                 continue
             print(f"✅ {source} RSS 获取成功，共 {len(feed.entries)} 条新闻")
-            articles = []  # 每个source都需要重新初始化列表
+            articles = []
             for entry in feed.entries[:5]:
                 title = entry.get('title', '无标题')
                 link = entry.get('link', '') or entry.get('guid', '')
                 if not link:
                     print(f"⚠️ {source} 的新闻 '{title}' 没有链接，跳过")
                     continue
-                # 爬取正文用于分析（不展示）
                 article_text = fetch_article_text(link)
                 analysis_text += f"〖{title}〗\n{article_text}\n\n"
                 print(f" {source} - {title} 获取成功")
@@ -112,43 +115,41 @@ def fetch_rss_articles(rss_feeds, max_articles=10):
         news_data[category] = category_content
     return news_data, analysis_text
 
-# AI 生成内容摘要（基于爬取的正文）
-def summarize(text):
-    completion = openai_client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[
-            {"role": "system", "content": """
-            你是一名专业的财经新闻分析师，请根据以下新闻内容，按照以下步骤完成任务：
-            1. 提取新闻中涉及的主要行业和主题，找出近1天涨幅最高的3个行业或主题，以及近3天涨幅较高且此前2周表现平淡的3个行业/主题。（如新闻未提供具体涨幅，请结合描述和市场情绪推测热点）
-            2. 针对每个热点，输出：
-            - 催化剂：分析近期上涨的可能原因（政策、数据、事件、情绪等）。
-            - 复盘：梳理过去3个月该行业/主题的核心逻辑、关键动态与阶段性走势。
-            - 展望：判断该热点是短期炒作还是有持续行情潜力。
-            3. 将以上分析整合为一篇1500字以内的财经热点摘要，逻辑清晰、重点突出，适合专业投资者阅读。
-            """},
-            {"role": "user", "content": text}
-        ]
-    )
-    return completion.choices[0].message.content.strip()
-
-# 发送微信推送
+# --- Функция отправки уведомлений (безопасная) ---
 def send_to_wechat(title, content):
+    if not server_chan_keys:
+        print("ℹ️ Server酱 ключи не заданы, пропускаем отправку.")
+        return
     for key in server_chan_keys:
         url = f"https://sctapi.ftqq.com/{key}.send"
         data = {"title": title, "desp": content}
-        response = requests.post(url, data=data, timeout=10)
-        if response.ok:
-            print(f"✅ 推送成功: {key}")
-        else:
-            print(f"❌ 推送失败: {key}, 响应：{response.text}")
+        try:
+            response = requests.post(url, data=data, timeout=10)
+            if response.ok:
+                print(f"✅ 推送成功: {key}")
+            else:
+                print(f"❌ 推送失败: {key}, 响应：{response.text}")
+        except Exception as e:
+            print(f"❌ 推送异常: {key}, 错误: {e}")
 
+# --- Основной блок ---
 if __name__ == "__main__":
     today_str = today_date().strftime("%Y-%m-%d")
     articles_data, analysis_text = fetch_rss_articles(rss_feeds, max_articles=5)
-    # AI-анализ пропущен (экономия средств)
+    
+    # Вместо AI-анализа вставляем заглушку
     summary = "（AI分析已跳过，仅显示新闻标题）"
+    
     final_summary = f"**{today_str} 财经新闻摘要**\n\n✍️ **今日分析总结：**\n{summary}\n\n---\n\n"
     for category, content in articles_data.items():
         if content.strip():
             final_summary += f"## {category}\n{content}\n\n"
-    # send_to_wechat(title=f"{today_str} 财经新闻摘要", content=final_summary)
+    
+    # Отправка (если ключи есть)
+    send_to_wechat(title=f"{today_str} 财经新闻摘要", content=final_summary)
+    
+    # Также выводим в консоль для просмотра в логах
+    print("\n" + "="*50)
+    print("ДАЙДЖЕСТ НОВОСТЕЙ (вывод в логи):")
+    print(final_summary)
+    print("="*50)
