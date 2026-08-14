@@ -141,14 +141,11 @@ def send_to_wechat(title, content):
 
 if __name__ == "__main__":
     today_str = today_date().strftime("%Y-%m-%d")
-    # 每个网站获取最多 5 篇文章
     articles_data, analysis_text = fetch_rss_articles(rss_feeds, max_articles=5)
-    # AI生成摘要
-    summary = summarize(analysis_text)
-    # 生成仅展示标题和链接的最终消息
+    # AI-анализ пропущен (экономия средств)
+    summary = "（AI分析已跳过，仅显示新闻标题）"
     final_summary = f"**{today_str} 财经新闻摘要**\n\n✍️ **今日分析总结：**\n{summary}\n\n---\n\n"
     for category, content in articles_data.items():
         if content.strip():
             final_summary += f"## {category}\n{content}\n\n"
-    # 推送到多个server酱key
     send_to_wechat(title=f"{today_str} 财经新闻摘要", content=final_summary)
