@@ -9,7 +9,7 @@ import pytz
 import os
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
-raise ValueError("OPENAI_API_KEY is not set in environment variables")
+    raise ValueError("OPENAI_API_KEY is not set in environment variables")
 openai_client = OpenAI(api_key=openai_api_key, base_url="https://api.deepseek.com/v1")
 
 # RSS源地址列表
