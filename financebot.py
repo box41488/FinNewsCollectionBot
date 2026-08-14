@@ -151,4 +151,4 @@ if __name__ == "__main__":
     for category, content in articles_data.items():
         if content.strip():
             final_summary += f"## {category}\n{content}\n\n"
-    send_to_wechat(title=f"{today_str} 财经新闻摘要", content=final_summary)
+    # send_to_wechat(title=f"{today_str} 财经新闻摘要", content=final_summary)
