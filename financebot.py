@@ -1,4 +1,4 @@
-福生无量天尊
+# 福生无量天尊
 from openai import OpenAI
 import feedparser
 import requests
